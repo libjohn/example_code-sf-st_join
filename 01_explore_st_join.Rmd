@@ -1,0 +1,181 @@
+---
+title: "Tutorial on st_join with st_contains"
+author: "John Little"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Load Library Packages
+
+```{r library packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(sf)
+library(mapview)
+library(leafpop)
+library(tigris)
+library(DT)
+```
+
+
+## Load Data
+
+```{r}
+starbucksNC <- read_csv("https://raw.githubusercontent.com/libjohn/mapping-with-R/master/data/All_Starbucks_Locations_in_the_US_-_Map.csv") %>% 
+  filter(State == "NC")
+
+options(tigris_use_cache = TRUE)
+
+durham_blocks <- tracts(state = "NC", county = "Durham", class = "sf", year = 2012)
+
+durham_blocks <-  durham_blocks %>%  
+  select(-6, -7, -8, -11, -12)
+
+glimpse(durham_blocks)
+```
+
+
+## Wrangle
+
+```{r}
+sbux_drm <- starbucksNC %>% 
+  filter(City == "Durham") %>% 
+  select(`Store Number`, `Ownership Type`,
+         `Phone Number`, City, Zip, Longitude,
+         Latitude)
+
+
+# assign my coordinates to a degree system
+# documenting my XY values in degrees
+# use, for example 4326 (best for US) ; 4269 (for US Agency)
+sbux_drm_sf <- st_as_sf(sbux_drm,
+                        coords = c("Longitude", "Latitude"),
+                        crs = 4326)
+st_crs(starbucksNC)
+st_crs(sbux_drm_sf)
+st_crs(durham_blocks)
+# https://guides.library.duke.edu/r-geospatial/CRS
+#       >    Projections / CRS > ESPG codes for CR's
+```
+
+## Tranform to a Projected CRS
+
+Use one of the NC Projections
+
+- State Plane North Carolina Feet	Lambert Conformal Conic	NAD83	feet	2264
+- State Plane North Carolina Meters	Lambert Conformal Conic	NAD83	meters	32119
+- UTM zone 17N [good for NC]	Transverse Mercator	WGS84	meters	32617
+
+```{r}
+# Transform to a Projection
+durham_blocks <- st_transform(durham_blocks,
+                              st_crs(2264))
+
+sbux_drm_sf <- st_transform(sbux_drm_sf,
+                            st_crs(durham_blocks)) 
+
+
+
+st_crs(sbux_drm_sf)
+st_crs(durham_blocks)
+
+```
+
+## First Lookie
+
+```{r}
+mapview(durham_blocks)
+mapview(sbux_drm_sf)
+mapview(list(durham_blocks, sbux_drm_sf))
+```
+
+## join
+
+```{r}
+shp_with_bux <- st_join(durham_blocks, sbux_drm_sf, join = st_contains, left = FALSE)
+
+bux_within_shp <- st_join(sbux_drm_sf, durham_blocks, left = TRUE, join = st_within)
+```
+
+
+```{r}
+plot(st_geometry(shp_with_bux))
+plot(st_geometry(bux_within_shp))
+```
+
+
+```{r}
+mapview(durham_blocks, col.regions = "grey",
+        legend = FALSE,
+        popup = popupTable(st_drop_geometry(durham_blocks), 
+                           zcol = c(4,5),
+                           row.numbers = FALSE,
+                           feature.id = FALSE)) +
+  mapview(shp_with_bux, 
+          zcol = "NAME",
+          layer.name = "Tract Name") +
+  mapview(bux_within_shp,
+          legend = FALSE,
+          cex = 0,
+          #cex = "AWATER",
+          lwd = 3,
+          alpha = .5,
+          color = "red",
+          zcol = "Store Number",
+          popup =
+            popupTable(st_drop_geometry(bux_within_shp),
+                             zcol = c(1,2,3,5,10,11),
+                           row.numbers = FALSE,
+                           feature.id = FALSE))
+```
+
+## Display Table
+
+```{r}
+datatable(st_drop_geometry(bux_within_shp))
+```
+
+
+```{r}
+bux_dt <- st_drop_geometry(bux_within_shp) %>% 
+  select(1, GEOID, TractName = NAME, Ownership = `Ownership Type`) %>% 
+  group_by(TractName) %>% 
+  summarise(TotalStores = n()) %>% 
+  arrange(-TotalStores) 
+
+datatable(bux_dt)
+```
+
+# Choropleth 
+
+Shade Tract shape by number of Stores in the Tract
+
+```{r}
+bux_tot_in_shape <- left_join(shp_with_bux, bux_dt, by = c("NAME" = "TractName"))
+
+mapview(durham_blocks, col.regions = "grey",
+        legend = FALSE,
+        popup = popupTable(st_drop_geometry(durham_blocks), 
+                           zcol = c(4,5),
+                           row.numbers = FALSE,
+                           feature.id = FALSE)) +
+  mapview(bux_tot_in_shape, 
+          zcol = "TotalStores",
+          layer.name = "Total Stores by Tract",
+          col.regions = c("royalblue1", "royalblue4")) +
+  mapview(bux_within_shp,
+          legend = FALSE,
+          cex = 0,
+          #cex = "AWATER",
+          lwd = 4,
+          color = "yellow",
+          zcol = "Store Number",
+          popup =
+            popupTable(st_drop_geometry(bux_within_shp),
+                             zcol = c(1,2,3,5,10,11),
+                           row.numbers = FALSE,
+                           feature.id = FALSE))
+
+```
+
