@@ -1,0 +1,232 @@
+---
+title: "Hands On with counties st_join with st_contains"
+author: "John Little"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Load Library Packages
+
+```{r library packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(sf)
+library(mapview)
+library(leafpop)
+library(tigris)
+library(DT)
+```
+
+
+## Load Data
+
+```{r}
+starbucksNC <- read_csv("data/raw/All_Starbucks_Locations_in_the_US_-_Map.csv") %>% 
+  filter(State == "NC")
+
+options(tigris_use_cache = TRUE)
+
+county_shapes <- counties(state = "NC", cb = TRUE, class = "sf", year = 2014) %>% 
+  filter(NAME == "Durham" | 
+           NAME == "Orange" | 
+           NAME == "Chatham")
+```
+
+
+#### garbage chunk
+
+```
+county_names <- 
+  read_excel("data/raw/County_Rural_Lookup.xlsx", 
+             skip = 3) %>% 
+  rename(countyfp = `2015 GEOID`) %>% 
+  rename(county_name = `2015 Geography Name`) %>% 
+  filter(State == "NC") %>% 
+  mutate(county_name = str_extract(county_name, ".*,")) %>%
+  mutate(county_name = str_replace(county_name, " County,", "")) %>% 
+  mutate(countyfp = str_sub(countyfp, 3L)) %>% 
+  select(countyfp, county_name) 
+
+#durham_blocks <-  durham_blocks %>%  
+#  select(-6, -7, -8, -11, -12)
+```
+
+
+## Wrangle
+
+```{r}
+starbucksNC <- starbucksNC %>% 
+  #filter(City == "Durham") %>% 
+  select(`Store Number`, `Ownership Type`,
+         `Phone Number`, City, Zip, Longitude,
+         Latitude)
+
+
+# assign my coordinates to a degree system
+# documenting my XY values in degrees
+# use, for example 4326 (best for US) ; 4269 (for US Agency)
+starbucksNC_sf <- st_as_sf(starbucksNC,
+                        coords = c("Longitude", "Latitude"),
+                        crs = 4326)
+```
+
+
+```{r}
+glimpse(county_shapes)
+```
+
+
+
+```{r}
+plot(county_shapes)
+mapview(county_shapes)
+```
+
+
+
+## Tranform to a Projected CRS
+
+Use one of the NC Projections
+
+- State Plane North Carolina Feet	Lambert Conformal Conic	NAD83	feet	2264
+- State Plane North Carolina Meters	Lambert Conformal Conic	NAD83	meters	32119
+- UTM zone 17N [good for NC]	Transverse Mercator	WGS84	meters	32617
+
+### Useful CRS background
+
+- `st_crs(starbucksNC)`  # get the assigned CRS
+
+- [Mark's Handy EPSG table](https://guides.library.duke.edu/r-geospatial/CRS#s-lib-ctab-21326020-2)
+
+
+
+
+```{r}
+# Transform to a Projection
+county_shapes <- st_transform(county_shapes,
+                              st_crs(2264))
+
+starbucksNC_sf <- st_transform(starbucksNC_sf,
+                            st_crs(county_shapes)) 
+
+
+
+st_crs(county_shapes)
+st_crs(starbucksNC_sf)
+
+```
+
+## First Lookie
+
+```{r}
+mapview(county_shapes)
+mapview(starbucksNC_sf)
+mapview(list(county_shapes, starbucksNC_sf),
+        color = list("red", "blue"))
+```
+
+## join
+
+```{r}
+shp_with_bux <- st_join(county_shapes, starbucksNC_sf, join = st_contains, left = FALSE)
+
+#bux_within_shp <- st_join(starbucksNC_sf, county_shapes, left = TRUE, join = st_within)
+
+bux_within_shp <- st_join(starbucksNC_sf, county_shapes, left = FALSE, join = st_within)
+
+```
+
+
+```{r}
+plot(st_geometry(shp_with_bux))
+plot(st_geometry(bux_within_shp))
+#plot(st_geometry(foo))
+```
+
+
+```{r}
+#mapview(county_shapes, col.regions = "grey",
+#        legend = FALSE,
+#        popup = popupTable(st_drop_geometry(county_shapes), 
+ #                          zcol = c(4,5),
+#                           row.numbers = FALSE,
+#                           feature.id = FALSE)) +
+mapview(shp_with_bux, 
+          zcol = "NAME",
+          layer.name = "NAME",
+                    popup =
+            popupTable(st_drop_geometry(bux_within_shp),
+                           zcol = c("Store Number", 
+                                    "Ownership Type", 
+                                    "Phone Number", 
+                                    "City", "NAME","Zip", 
+                                    "GEOID", "ALAND",
+                                    "AWATER"),
+                           row.numbers = TRUE,
+                           feature.id = FALSE)) +
+  mapview(bux_within_shp,
+          legend = FALSE,
+          cex = 0,
+          #cex = "AWATER",
+          lwd = 3,
+          alpha = .5,
+          color = "red",
+          zcol = "Store Number",
+          popup =
+            popupTable(st_drop_geometry(bux_within_shp),
+                             zcol = c(1,2,3,5,10,11),
+                           row.numbers = FALSE,
+                           feature.id = FALSE))
+```
+
+## Display Table
+
+```{r}
+datatable(st_drop_geometry(bux_within_shp))
+```
+
+
+```{r}
+bux_dt <- st_drop_geometry(bux_within_shp) %>% 
+  select(1, GEOID, TractName = NAME, Ownership = `Ownership Type`) %>% 
+  group_by(TractName) %>% 
+  summarise(TotalStores = n()) %>% 
+  arrange(-TotalStores) 
+
+datatable(bux_dt)
+```
+
+# Choropleth 
+
+Shade Tract shape by number of Stores in the Tract
+
+```r
+bux_tot_in_shape <- left_join(shp_with_bux, bux_dt, by = c("NAME" = "TractName"))
+
+mapview(durham_blocks, col.regions = "grey",
+        legend = FALSE,
+        popup = popupTable(st_drop_geometry(durham_blocks), 
+                           zcol = c(4,5),
+                           row.numbers = FALSE,
+                           feature.id = FALSE)) +
+  mapview(bux_tot_in_shape, 
+          zcol = "TotalStores",
+          layer.name = "Total Stores by Tract",
+          col.regions = c("royalblue1", "royalblue4")) +
+  mapview(bux_within_shp,
+          legend = FALSE,
+          cex = 0,
+          #cex = "AWATER",
+          lwd = 4,
+          color = "yellow",
+          zcol = "Store Number",
+          popup =
+            popupTable(st_drop_geometry(bux_within_shp),
+                             zcol = c(1,2,3,5,10,11),
+                           row.numbers = FALSE,
+                           feature.id = FALSE))
+
+```
+
