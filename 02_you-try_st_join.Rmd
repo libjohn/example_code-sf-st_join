@@ -202,19 +202,13 @@ datatable(bux_dt)
 
 Shade Tract shape by number of Stores in the Tract
 
-```r
+```{r}
 bux_tot_in_shape <- left_join(shp_with_bux, bux_dt, by = c("NAME" = "TractName"))
 
-mapview(durham_blocks, col.regions = "grey",
-        legend = FALSE,
-        popup = popupTable(st_drop_geometry(durham_blocks), 
-                           zcol = c(4,5),
-                           row.numbers = FALSE,
-                           feature.id = FALSE)) +
-  mapview(bux_tot_in_shape, 
+mapview(bux_tot_in_shape, 
           zcol = "TotalStores",
           layer.name = "Total Stores by Tract",
-          col.regions = c("royalblue1", "royalblue4")) +
+          col.regions = c("royalblue", "royalblue2", "royalblue4")) +
   mapview(bux_within_shp,
           legend = FALSE,
           cex = 0,
@@ -229,4 +223,26 @@ mapview(durham_blocks, col.regions = "grey",
                            feature.id = FALSE))
 
 ```
+
+
+
+
+
+```{r}
+bux_within_shp %>% 
+  ggplot() +
+  geom_sf()
+
+
+bux_tot_in_shape %>% 
+  mutate(TotalStores = as.character(TotalStores)) %>%
+  ggplot() +
+  geom_sf(aes(fill = fct_infreq(TotalStores))) +
+  scale_fill_brewer("Total Stores", type = "seq", direction = -1, palette = "Greens") +
+  geom_sf(data = bux_within_shp, col = "purple") 
+
+  
+```
+
+
 
