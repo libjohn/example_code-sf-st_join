@@ -1,0 +1,58 @@
+---
+title: "Nearest Neighbor"
+output:
+  html_notebook: default
+---
+
+Load packages
+```{r}
+library(mapview)
+library(sf)
+library(nngeo)
+library(tidyverse)
+```
+
+Generate example household and school points 
+```{r}
+coords_hh <- data.frame(runif(20, 36, 41), runif(20, -110, -102), 
+                        paste("hh", letters[1:20]))
+colnames(coords_hh) <- c("lat", "long", "id")
+coords_schools <- data.frame(runif(10, 36, 41), runif(10, -110, -102), 
+                             paste("school", letters[1:10]), runif(10, 0, 100))
+colnames(coords_schools) <- c("lat", "long", "id", "quality")
+```
+
+Convert to spatial data
+```{r}
+hhs <- st_as_sf(coords_hh, coords = c("long", "lat"), crs = 4326)
+schools <- st_as_sf(coords_schools, coords = c("long", "lat"), crs = 4326)
+```
+
+Create a map (households in red, schools in blue)
+```{r}
+mapview(hhs, col.regions = "red", legend = FALSE) +
+  mapview(schools, col.regions = "blue", legend = FALSE)
+```
+
+Find the closest three schools to each household
+
+`nearest_three <- st_join(hhs, schools, st_nn, k = 3)`
+
+```{r}
+nearest_three <- st_join(hhs, schools, st_nn, k = 3)
+colnames(nearest_three) <- c("hh_id", "school_id", "quality", "geometry")
+
+as_tibble(nearest_three)
+```
+
+Calculate the mean school quality for each household
+```{r}
+final_table <- nearest_three %>%
+  group_by(hh_id) %>%
+  summarize(mean_quality = mean(quality))
+
+final_table
+```
+
+
+

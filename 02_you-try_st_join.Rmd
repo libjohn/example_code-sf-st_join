@@ -80,8 +80,7 @@ glimpse(county_shapes)
 
 
 ```{r}
-plot(county_shapes)
-mapview(county_shapes)
+plot(st_geometry(county_shapes))
 ```
 
 
@@ -124,7 +123,7 @@ st_crs(starbucksNC_sf)
 mapview(county_shapes)
 mapview(starbucksNC_sf)
 mapview(list(county_shapes, starbucksNC_sf),
-        color = list("red", "blue"))
+        color = list("red", "black"))
 ```
 
 ## join
@@ -229,19 +228,21 @@ mapview(bux_tot_in_shape,
 
 
 ```{r}
-bux_within_shp %>% 
-  ggplot() +
-  geom_sf()
-
-
 bux_tot_in_shape %>% 
   mutate(TotalStores = as.character(TotalStores)) %>%
   ggplot() +
   geom_sf(aes(fill = fct_infreq(TotalStores))) +
+  geom_sf_text(aes(label = NAME)) +
+  geom_sf(data = bux_within_shp, col = "orange") +
   scale_fill_brewer("Total Stores", type = "seq", direction = -1, palette = "Greens") +
-  geom_sf(data = bux_within_shp, col = "purple") 
+  theme(panel.background = element_rect(fill = "transparent"),
+  panel.grid.major = element_line(color = "transparent"),
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank()) +
+  ggtitle("Starbucks in Select NC Counties") +
+  ylab("") + xlab("")
 
-  
 ```
 
 
